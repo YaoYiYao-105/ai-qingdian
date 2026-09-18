@@ -1,0 +1,105 @@
+server:
+  port: 8080
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
+  jackson:
+    # 接口返回统一用 snake_case（total_trays / fill_ratio），与模型字段、前端、README 一致
+    property-naming-strategy: SNAKE_CASE
+
+# ============ 火山方舟（豆包视觉模型）配置 ============
+ark:
+  # API Key（必填）：通过环境变量 ARK_API_KEY 注入，或在本地用 application-local.yml 覆盖。
+  # 安全约定：仓库内只保留空默认值，任何真实 Key 都不要提交到版本库。
+  api-key: "${ARK_API_KEY:}"
+  # 豆包视觉模型接入地址（火山方舟 OpenAI 兼容接口）
+  base-url: "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+  # 模型 ID：
+  #   - 预置模型 ID，例如 doubao-1-5-vision-pro-32k-250115
+  #   - 或你在火山方舟控制台创建的推理接入点 ID（形如 ep-2024xxxxxxxx-xxxxx）
+  model: "doubao-seed-2-0-lite-260428"
+  # 深度思考模式：disabled=关闭思考、直接输出（最快）；auto=模型自动判断；enabled=强制开启
+  thinking-type: disabled
+  # 最大输出 token 数：餐盘多、字段多时如果 JSON 被截断，就调大这个值
+  max-tokens: 4096
+  # 调 API 前先把图片最长边压缩到这个像素值（展示柜照片通常很大，压缩可省流量与费用）
+  max-image-size: 1600
+  # JPEG 压缩质量 0-100
+  image-quality: 85
+  # 连接超时（毫秒）
+  connect-timeout-ms: 10000
+  # 读取超时（毫秒），视觉模型识图较慢，给足时间
+  read-timeout-ms: 180000
+  # 剩余占比分级阈值：fill_ratio >= sufficient=充足；>= moderate=一般；>= low=较少；< low=严重不足
+  ratio-level:
+    sufficient: 70
+    moderate: 40
+    low: 15
+  # 系统提示词：模型逐盘识别货品并估算剩余占比
+  system-prompt: |-
+    你是一名专业的熟食/卤味零售盘点助手。请查看展示柜照片，逐个识别每个独立散装展示托盘中的货品，并判断该托盘的整体剩余量占比。
+
+    请严格按以下要求输出：
+    1. 只输出一个 JSON 对象，不要输出任何其他文字、解释或 Markdown 代码块标记。
+    2. 不要数份数、不要判断数量多少，只看剩余量在餐盘中的占比。
+    3. JSON 格式固定为：
+    {
+      "items": [
+    {"name": "商品名称", "fill_ratio": 剩余占比0-100的整数, "confidence": "high|medium|low", "description": "位置或外观补充"}
+      ],
+      "summary": "一句话总结"
+    }
+    每个 item 的字段名必须使用英文，固定为：name、x、y、width、height、fill_ratio、confidence、description。
+    description 填位置或外观的补充说明；没有补充说明时输出空字符串 ""，不要使用其他字段名。
+    4. 每个独立托盘只能输出一条 item，不要输出坐标框。判断剩余占比依据盘内食物覆盖面积、堆叠厚度、露出盘底和边缘空余程度。
+    5. 只评估散装展示餐盘中的商品；盒装/预包装商品不要识别、不要输出。
+    6. 支持斜拍、俯拍、不同角度、不同颜色和材质托盘，以及明暗不均、色偏、阴影和玻璃反光。玻璃倒影、镜像、重影、夹子和包装盒不是托盘；同一实物只输出一次。
+    7. 双拼/拼盘：同一个餐盘里两种商品挨着放（未混合）时，拆成两条 item 分别输出，各自估算占比；禁止用"XX配XX""XX拌XX"这种合并命名，每个 item 只写一种商品。
+    8. 如果认不出具体是哪种商品，不要编造名称，输出位置+外观描述（如"上层左侧深色卤味"），并把 confidence 标为 low。
+    9. 看不清、被遮挡、反光的餐盘，请如实标注 confidence 为 low，并给出你的最佳估算；不要编造不存在的商品。
+    10. confidence 说明：high=清晰可见、占比判断准确；medium=部分遮挡但可判断；low=模糊或遮挡严重、仅估计。
+    11. 所有输出字段名必须与上面完全一致。清单中的名称只作参照，无法确定对应关系时按第 8 条处理。
+  # 用户提示词（追加在图片之前的指令）
+  user-prompt: "请识别这张熟食展示柜照片中每个餐盘的剩余量占比，并严格按照系统要求输出 JSON。"
+
+# ============ 人工纠错训练数据采集配置 ============
+correction:
+  # 训练数据根目录：图片文件与 corrections.jsonl 都会保存在这里（可用环境变量覆盖）
+  storage-dir: ${CORRECTION_STORAGE_DIR:ai_resources}
+
+# ============ 路线 A：OpenCV 餐盘剩余占比计算配置 ============
+cv:
+  # 处理前把图片最长边缩放到该像素值（加速；0 表示不缩放）
+  max-side: 1600
+  # 高斯模糊核大小（奇数）
+  blur-kernel: 5
+  # 自适应阈值 blockSize（奇数，越大越抗噪、细节越少）
+  adaptive-block-size: 41
+  # 自适应阈值常数 C（越大检出的边缘越少）
+  adaptive-c: 10
+  # 形态学闭运算核大小
+  morph-kernel: 7
+  # 候选餐盘最小面积（处理分辨率下）
+  min-area: 6000
+  # 候选餐盘最大面积占整图比例
+  max-area-ratio: 0.55
+  # 轮廓面积至少占其外接矩形面积的比例
+  min-box-fill: 0.55
+  # 餐盘外接矩形最小边长
+  min-side: 40
+  # 贴边保护：候选框任一边距图片边缘小于该像素时丢弃（过滤柜子边缘/阴影误检）
+  border-margin: 6
+  min-aspect-ratio: 0.4
+  max-aspect-ratio: 2.6
+  # 边框采样厚度占餐盘短边比例（估计空盘背景色）
+  border-ratio: 0.08
+  # 计算区域向内收缩占短边比例（避开边框/背景）
+  inset-ratio: 0.10
+  # Lab 色彩距离阈值：与空盘背景距离大于该值视为食物
+  color-distance-threshold: 45.0
+  # 高于该亮度的像素视为高光/反光，不参与计算
+  highlight-value: 245
+  ignore-highlights: true

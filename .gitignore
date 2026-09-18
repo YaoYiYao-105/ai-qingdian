@@ -1,0 +1,26 @@
+# ---- OS / IDE ----
+.DS_Store
+.idea/
+*.iml
+.vscode/
+
+# ---- Backend (Spring Boot / Maven) ----
+backend/target/
+backend/out/
+backend/.mvn/wrapper/maven-wrapper.jar
+# 本地敏感配置：真实 API Key 只放这里，不进仓库
+backend/src/main/resources/application-local.yml
+backend/src/main/resources/application-local.yaml
+
+# ---- 训练数据（含真实门店图片与业务数据，不进仓库）----
+backend/ai_resources/images/
+backend/ai_resources/corrections.jsonl
+
+# ---- Frontend (uni-app) ----
+frontend/node_modules/
+frontend/unpackage/
+frontend/dist/
+frontend/.hbuilderx/
+
+# ---- Logs ----
+*.log

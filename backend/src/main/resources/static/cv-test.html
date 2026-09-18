@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenCV 餐盘占比测试</title>
+  <style>
+    body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; margin: 24px; color: #222; }
+    h1 { font-size: 20px; }
+    .row { margin: 12px 0; }
+    label { display: inline-block; min-width: 90px; }
+    input[type=file] { font-size: 14px; }
+    button { padding: 8px 18px; font-size: 14px; cursor: pointer; }
+    #status { color: #888; margin-left: 10px; }
+    #img { max-width: 100%; border: 1px solid #ddd; margin-top: 16px; display: none; }
+    table { border-collapse: collapse; margin-top: 16px; }
+    th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 13px; }
+    th { background: #f5f5f5; }
+    .low { color: #c00; font-weight: 600; }
+    .mid { color: #b8860b; font-weight: 600; }
+    .high { color: #178f3e; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>路线 A：OpenCV 餐盘剩余占比测试</h1>
+  <div class="row">
+    <label>展示柜照片：</label>
+    <input type="file" id="file" accept="image/*">
+  </div>
+  <div class="row">
+    <label>网格模式（可选）：</label>
+    <input id="grid" placeholder="例如 3x5，留空则自动检测" style="width:180px;padding:6px;">
+  </div>
+  <div class="row">
+    <button id="run">开始检测</button>
+    <span id="status"></span>
+  </div>
+
+  <img id="img" alt="标注结果">
+
+  <h2 id="tableTitle" style="display:none;">检测结果</h2>
+  <table id="table" style="display:none;">
+    <thead>
+      <tr><th>#</th><th>x</th><th>y</th><th>宽</th><th>高</th><th>剩余占比</th><th>等级</th><th>食物/空盘/未知像素</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    document.getElementById('run').addEventListener('click', async function () {
+      const fileInput = document.getElementById('file');
+      const grid = document.getElementById('grid').value.trim();
+      const status = document.getElementById('status');
+      const img = document.getElementById('img');
+      const table = document.getElementById('table');
+      const tableTitle = document.getElementById('tableTitle');
+
+      if (!fileInput.files.length) {
+        status.textContent = '请先选择图片';
+        return;
+      }
+
+      const form = new FormData();
+      form.append('file', fileInput.files[0]);
+      const url = '/api/analyze-cv' + (grid ? '?grid=' + encodeURIComponent(grid) : '');
+
+      status.textContent = '处理中…';
+      table.style.display = 'none';
+      tableTitle.style.display = 'none';
+      img.style.display = 'none';
+
+      try {
+        const resp = await fetch(url, { method: 'POST', body: form });
+        const json = await resp.json();
+        if (json.code !== 0) {
+          status.textContent = '失败：' + (json.message || resp.status);
+          return;
+        }
+        const d = json.data;
+        var diag = '';
+        if (d.strategy === 'auto') {
+          diag = '，原始轮廓 ' + (d.contour_count || 0) + '，候选框 ' + (d.candidate_count || 0);
+        }
+        status.textContent = '完成：' + d.strategy + ' 模式，检测到 ' + d.tray_count + ' 个餐盘（处理分辨率 ' + d.processed_width + 'x' + d.processed_height + '）' + diag;
+
+        if (d.annotated_base64) {
+          img.src = 'data:image/jpeg;base64,' + d.annotated_base64;
+          img.style.display = 'block';
+        }
+
+        const tbody = table.querySelector('tbody');
+        tbody.innerHTML = '';
+        (d.trays || []).forEach(function (t) {
+          const tr = document.createElement('tr');
+          const levelClass = t.level === '充足' ? 'high' : (t.level === '一般' ? 'mid' : 'low');
+          tr.innerHTML = '<td>' + t.index + '</td><td>' + t.x + '</td><td>' + t.y + '</td><td>' + t.width + '</td><td>' + t.height + '</td>'
+            + '<td>' + (t.fill_ratio >= 0 ? t.fill_ratio + '%' : '—') + '</td>'
+            + '<td class="' + levelClass + '">' + t.level + '</td>'
+            + '<td>' + t.food_pixels + ' / ' + t.empty_pixels + ' / ' + t.unknown_pixels + '</td>';
+          tbody.appendChild(tr);
+        });
+        table.style.display = 'table';
+        tableTitle.style.display = 'block';
+      } catch (e) {
+        status.textContent = '请求出错：' + e.message;
+      }
+    });
+  </script>
+</body>
+</html>
